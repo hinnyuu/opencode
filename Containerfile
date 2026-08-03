@@ -16,12 +16,20 @@ ENV PATH="/opencode:${PATH}"
 # 启用 flakes（纯追加，不影响 nix-shell / nix-env 等经典命令）。
 RUN echo "experimental-features = nix-command flakes" >> /etc/nix/nix.conf
 
-# 核心工具（使用镜像自带 channel 快照，无需 nix-channel --update）。
+# 核心工具安装。
+#
+# 注意：nixos/nix 基础镜像的 nix profile 中预装了 git-minimal
+#（供其 entrypoint 脚本使用）。git-minimal 与完整版 git 在
+# libexec/git-core/ 下存在同名文件，不能共存于同一 profile。
+# 因此先 nix-env -e 移除 git-minimal，再安装完整版 git。
+#
 #   - git：版本控制，opencode 的 diff/undo 依赖
 #   - ripgrep (rg)：opencode 的 grep 工具后端
-# 注意：不预装 python/node/gcc 等语言运行时，
-#       需要时由 LLM 通过 nix-shell / nix develop 按需获取。
-RUN nix-env -iA nixpkgs.git nixpkgs.ripgrep && \
+#
+# 不预装 python/node/gcc 等语言运行时，
+# 需要时由 LLM 通过 nix-shell / nix develop 按需获取。
+RUN nix-env -e git-minimal && \
+    nix-env -iA nixpkgs.git nixpkgs.ripgrep && \
     git --version && rg --version
 
 # /nix 声明为卷挂载点。
