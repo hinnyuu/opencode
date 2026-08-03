@@ -1,0 +1,91 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// hinnyuu/opencode 全局配置
+// 位置：宿主机 /data/apps/podman_rootless.opencode/root/.config/opencode/opencode.jsonc
+//       → 容器内 /root/.config/opencode/opencode.jsonc（只读挂载）
+//
+// 权限值说明：
+//   "allow" — 自动执行，不询问用户
+//   "ask"   — 弹出确认提示，用户按 Enter 才执行
+//   "deny"  — 直接拒绝，LLM 无法执行
+// ─────────────────────────────────────────────────────────────────────────────
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  "permission": {
+    // ── bash 工具：按命令模式精细控制 ──
+    "bash": {
+      // 默认：所有命令需用户审批
+      "*": "ask",
+
+      // 安全只读命令：自动允许
+      "ls *": "allow",
+      "cat *": "allow",
+      "head *": "allow",
+      "tail *": "allow",
+      "wc *": "allow",
+      "find *": "allow",
+      "file *": "allow",
+      "stat *": "allow",
+      "du *": "allow",
+      "df *": "allow",
+      "which *": "allow",
+      "echo *": "allow",
+      "rg *": "allow",
+      "grep *": "allow",
+
+      // git 操作：自动允许（容器内无宿主机 git 仓库风险）
+      "git *": "allow",
+
+      // nix 环境操作：自动允许（这是本工作流的核心能力）
+      "nix-shell *": "allow",
+      "nix develop *": "allow",
+      "nix-env -iA *": "allow",
+      "nix-env -q *": "allow",
+      "nix search *": "allow",
+      "nix flake *": "allow",
+      "nix run *": "allow",
+      "nix build *": "allow",
+
+      // 编译/测试/运行：自动允许（在项目目录内操作）
+      "make *": "allow",
+      "cargo *": "allow",
+      "go *": "allow",
+      "python *": "allow",
+      "python3 *": "allow",
+      "node *": "allow",
+      "npm *": "allow",
+      "npx *": "allow",
+      "gcc *": "allow",
+      "g++ *": "allow",
+      "cmake *": "allow",
+      "ctest *": "allow",
+
+      // 危险操作：直接拒绝
+      "rm -rf /": "deny",
+      "rm -rf /*": "deny",
+      "rm -rf /nix": "deny",
+      "rm -rf /opencode": "deny",
+      "chmod -R *": "deny",
+      "chown -R *": "deny",
+      "dd *": "deny",
+      "mkfs *": "deny",
+      "> /dev/sd*": "deny",
+      "curl * | bash": "deny",
+      "curl * | sh": "deny",
+      "wget * | bash": "deny",
+      "wget * | sh": "deny"
+    },
+
+    // ── 文件操作工具 ──
+    // 项目目录内的文件读写是 LLM 的核心工作，全部允许
+    "read": "allow",
+    "edit": "allow",
+    "write": "allow",
+    "grep": "allow",
+    "glob": "allow",
+
+    // ── 网络工具 ──
+    // 联网获取内容需审批（防止数据外泄或引入不可信内容）
+    "webfetch": "ask"
+  }
+}
