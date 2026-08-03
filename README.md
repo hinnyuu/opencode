@@ -50,7 +50,7 @@ LLM 是强大的协作者，但它可能犯错、可能被 prompt injection 误�
 
 | 层级 | 机制 | 防护目标 |
 |------|------|----------|
-| ① 镜像层 | 私有 GHCR 镜像，nix 环境，无预装语言运行时 | 供应链安全，最小攻击面 |
+| ① 镜像层 | 开源 GHCR 镜像，使用Github Workflow自动构建，nix 环境，无预装语言运行时 | 供应链安全，最小攻击面 |
 | ② 容器层 | rootless Podman，`--rm` 即用即走 | 宿主机隔离，无残留 |
 | ③ 脚本层 | 白名单目录校验 | 防止挂载 / 或 /home |
 | ④ 权限层 | opencode.jsonc permission + AGENTS.md | LLM 操作审批与行为约束 |
@@ -68,6 +68,7 @@ LLM 是强大的协作者，但它可能犯错、可能被 prompt injection 误�
 
 ### 部署
 
+准备宿主机即将挂载的目录树、自行下载opencode官方的二进制文件，放进目录树对应位置。
 ```bash
 # 1. 创建目录结构
 mkdir -p /data/apps/podman_rootless.opencode/{opencode,root/.config/opencode,root/.local/share/opencode}
@@ -102,6 +103,7 @@ cd /data/projects/ml-experiment
   --dataset /data/dataset/imagenet \
   --dataset /data/dataset/coco
 ```
+Tips: 可以使用alias简化命令。
 
 ### 升级 opencode
 
@@ -112,6 +114,7 @@ curl -fsSL https://github.com/anomalyco/opencode/releases/download/v1.19.0/openc
 chmod +x /data/apps/podman_rootless.opencode/opencode/opencode
 # 下次启动容器自动使用新版
 ```
+保险起见，也可以先退出容器再更换新的opencode官方二进制文件。
 
 ---
 
