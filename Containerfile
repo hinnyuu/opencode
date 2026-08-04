@@ -21,8 +21,8 @@ RUN nix profile add "github:anomalyco/opencode/v${OPENCODE_VERSION}"
 
 # ─── 安全文件（烤入镜像，首次运行时被复制进 opencode-home 卷）─────────────────
 # 运行时由宿主机 bind mount ro 覆盖，此处副本仅作为空卷初始化内容
-COPY root/.config/opencode/opencode.jsonc /root/.config/opencode/opencode.jsonc
-COPY root/.config/opencode/AGENTS.md      /root/.config/opencode/AGENTS.md
+COPY podman_rootless.opencode/root/.config/opencode/opencode.jsonc /root/.config/opencode/opencode.jsonc
+COPY podman_rootless.opencode/root/.config/opencode/AGENTS.md /root/.config/opencode/AGENTS.md
 
 # ─── 入口 ────────────────────────────────────────────────────────────────────
 COPY entrypoint.sh /entrypoint.sh

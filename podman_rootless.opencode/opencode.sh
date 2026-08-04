@@ -29,6 +29,7 @@ set -euo pipefail
 
 # ─── 常量 ────────────────────────────────────────────────────────────────────
 
+# 宿主机上 opencode.sh 所在目录（绝对路径）
 BASE_DIR="/data/apps/podman_rootless.opencode"
 # IMAGE="ghcr.io/hinnyuu/opencode:latest"
 # 目前方便开发调试，直接使用 dev 镜像。正式发布后记得改回 latest。
