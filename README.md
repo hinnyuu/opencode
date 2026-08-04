@@ -59,30 +59,28 @@ LLM 是强大的协作者，但它可能犯错、可能被 prompt injection 误�
 ---
 
 ## 快速开始
+⚠️ 本README.md假设你希望安装到`/data/apps/`实际根据需要，把`/data/apps/`替换为你期望的安装目录
 
 ### 前置条件
 
-- Podman ≥ 5.8.4（rootless 模式）
+- 宿主机Podman ≥ 5.8.4（rootless 模式）
+- 宿主机有git
 - SELinux 已启用（推荐）或已禁用（`:z`/`:Z` 标签会被忽略，不影响功能）
-- 目录结构已创建
+- 准备好了放置本项目的目录，如`/data/apps/`
 
 ### 部署
 
-准备宿主机即将挂载的目录树、自行下载opencode官方的二进制文件，放进目录树对应位置。
+以下命令在单个bash中从头到尾完成：
 ```bash
-# 1. 创建目录结构
-mkdir -p /data/apps/podman_rootless.opencode/{opencode,root/.config/opencode,root/.local/share/opencode}
+# 1. 先去宿主机上想安装此项目的目录，本README.md假设你希望安装到/data/apps/ 实际根据需要更改
+cd /data/apps/
 
-# 2. 从本仓库复制文件到对应位置
-cp opencode.sh     /data/apps/podman_rootless.opencode/
-cp opencode.jsonc  /data/apps/podman_rootless.opencode/root/.config/opencode/
-cp AGENTS.md       /data/apps/podman_rootless.opencode/root/.config/opencode/
-chmod +x /data/apps/podman_rootless.opencode/opencode.sh
+# 2. 在刚刚的目录里，git pull整个仓库，取出核心目录，删掉仓库
+git pull https://github.com/hinnyuu/opencode.git && mv /data/apps/opencode/podman_rootless.opencode /data/apps/ && rm -r /data/apps/opencode
 
-# 3. 下载 opencode 二进制
-curl -fsSL https://github.com/anomalyco/opencode/releases/download/v1.18.11/opencode-linux-x64.tar.gz \
-  | tar xz -C /data/apps/podman_rootless.opencode/opencode/
-chmod +x /data/apps/podman_rootless.opencode/opencode/opencode
+# 3. 给予get_opencode_bin.sh运行权限，使用get_opencode_bin.sh下载 opencode 二进制
+chmod +x /data/apps/podman_rootless.opencode/opencode/get_opencode_bin.sh
+/data/apps/podman_rootless.opencode/opencode/get_opencode_bin.sh
 
 # 4. 拉取镜像
 podman pull ghcr.io/hinnyuu/opencode:latest
@@ -93,6 +91,9 @@ podman pull ghcr.io/hinnyuu/opencode:latest
 ### 使用
 
 ```bash
+# 授予启动脚本最基本的运行权限。
+chmod +x /data/apps/podman_rootless.opencode/opencode.sh
+
 # 进入项目目录，启动 opencode
 cd /data/projects/my-project
 /data/apps/podman_rootless.opencode/opencode.sh
@@ -108,13 +109,10 @@ Tips: 可以使用alias简化命令。
 ### 升级 opencode
 
 ```bash
-# 替换二进制即可，无需重建镜像
-curl -fsSL https://github.com/anomalyco/opencode/releases/download/v1.19.0/opencode-linux-x64.tar.gz \
-  | tar xz -C /data/apps/podman_rootless.opencode/opencode/
-chmod +x /data/apps/podman_rootless.opencode/opencode/opencode
+# 保险起见，先退出容器再更换新的opencode官方二进制文件。
+rm /data/apps/podman_rootless.opencode/opencode/opencode && /data/apps/podman_rootless.opencode/opencode/get_opencode_bin.sh
 # 下次启动容器自动使用新版
 ```
-保险起见，也可以先退出容器再更换新的opencode官方二进制文件。
 
 ---
 
@@ -175,12 +173,15 @@ podman logs opencode
 
 ---
 
-## 文件说明
+## 项目文件说明
 
 | 文件 | 用途 |
 |------|------|
-| `Containerfile` | 镜像构建定义（push 到 GitHub 后由 Actions 自动构建） |
-| `opencode.sh` | 宿主机启动脚本（复制到宿主机使用） |
-| `opencode.jsonc` | OpenCode 权限配置模板（复制到宿主机配置目录） |
-| `AGENTS.md` | LLM 行为规则模板（复制到宿主机配置目录） |
 | `.github/workflows/build-image.yml` | CI/CD：分支 → 镜像自动构建推送 |
+| `podman_rootless.opencode/opencode/get_opencode_bin.sh` | 下载/更新opencode官方二进制的Shell脚本 |
+| `Apodman_rootless.opencode/root/.config/opencode/AGENTS.md` | LLM 行为规则模板（复制到宿主机配置目录） |
+| `podman_rootless.opencode/root/.config/opencode/opencode.jsonc` | OpenCode 权限配置模板（复制到宿主机配置目录） |
+| `podman_rootless.opencode/opencode.sh` | 宿主机启动脚本 |
+| `Containerfile` | 镜像构建定义 |
+| `LICENSE` | 本项目采用AGPLv3 |
+| `README.md` | 本文档 |
