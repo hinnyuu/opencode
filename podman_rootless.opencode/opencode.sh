@@ -8,6 +8,9 @@
 # 用法：
 #   cd /data/projects/my-project && /data/apps/podman_rootless.opencode/opencode.sh
 #   /data/apps/podman_rootless.opencode/opencode.sh --dataset /data/dataset/imagenet
+#   /data/apps/podman_rootless.opencode/opencode.sh -p 3000
+#   /data/apps/podman_rootless.opencode/opencode.sh -p 3000 -p 5173 -p 8080
+#   /data/apps/podman_rootless.opencode/opencode.sh -p 8080:3000
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -31,9 +34,9 @@ set -euo pipefail
 
 # 宿主机上 opencode.sh 所在目录（绝对路径）
 BASE_DIR="/data/apps/podman_rootless.opencode"
-# IMAGE="ghcr.io/hinnyuu/opencode:latest"
-# 目前方便开发调试，直接使用 dev 镜像。正式发布后记得改回 latest。
-IMAGE="hinnyuu/opencode:dev"
+IMAGE="ghcr.io/hinnyuu/opencode:latest"
+# 开发调试时记得直使用 dev 镜像。正式发布时记得改回 latest。
+# IMAGE="hinnyuu/opencode:dev"
 CONTAINER_NAME="opencode"
 
 # ─── 白名单校验 ──────────────────────────────────────────────────────────────
@@ -64,6 +67,7 @@ fi
 # ─── 解析命令行参数 ──────────────────────────────────────────────────────────
 
 DATASET_ARGS=()
+PORT_ARGS=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -75,9 +79,33 @@ while [[ $# -gt 0 ]]; do
             DATASET_ARGS+=("-v" "$2:$2:ro,z")
             shift 2
             ;;
+        # ─── 端口映射 ────────────────────────────────────────────────────────
+        # 支持两种写法：
+        #   -p 3000       → 宿主机 3000 ↔ 容器 3000（语法糖，自动补全）
+        #   -p 8080:3000  → 宿主机 8080 ↔ 容器 3000（显式指定）
+        # 可多次使用以映射多个端口：-p 3000 -p 5173 -p 8080
+        -p|--port)
+            if [[ $# -lt 2 ]]; then
+                echo "错误: $1 需要一个端口参数（如 3000 或 8080:3000）" >&2
+                exit 1
+            fi
+            PORT_SPEC="$2"
+            # 若用户只写了单个数字（如 3000），自动补全为 3000:3000
+            if [[ "${PORT_SPEC}" =~ ^[0-9]+$ ]]; then
+                PORT_SPEC="${PORT_SPEC}:${PORT_SPEC}"
+            fi
+            # 校验格式：必须是 数字:数字 的形式（经过补全后应始终满足）
+            if [[ ! "${PORT_SPEC}" =~ ^[0-9]+:[0-9]+$ ]]; then
+                echo "错误: 无效的端口格式 '${2}'。" >&2
+                echo "支持格式: -p <端口> 或 -p <宿主机端口>:<容器端口>" >&2
+                exit 1
+            fi
+            PORT_ARGS+=("-p" "${PORT_SPEC}")
+            shift 2
+            ;;
         *)
             echo "错误: 未知参数 '$1'" >&2
-            echo "用法: $0 [--dataset <路径>] ..." >&2
+            echo "用法: $0 [--dataset <路径>] [-p <端口>] ..." >&2
             exit 1
             ;;
     esac
@@ -91,6 +119,9 @@ PODMAN_RUN_ARGS=(
     -it
     --rm
     --name "${CONTAINER_NAME}"
+
+    # pasta目前在rootless下的ws端口映射有问题，改用slirp4netns
+    --network slirp4netns:port_handler=slirp4netns
 
     # ═══ ① /root（Named Volume，读写）═══
     # 持久化 opencode 的全部运行时数据：
@@ -132,6 +163,14 @@ PODMAN_RUN_ARGS=(
     # :ro = 只读，:z = 共享标签。
     # DATASET_ARGS 为空时 guarded 展开为空，set -u 下安全。
     ${DATASET_ARGS[@]+"${DATASET_ARGS[@]}"}
+
+    # ═══ ⑦ 端口映射（可选，由 -p/--port 参数动态生成）═══
+    # 用于将容器内开发服务器端口暴露到宿主机，以便浏览器访问测试。
+    # 示例：容器内 `python -m http.server 3000`，
+    #       宿主机浏览器访问 http://localhost:3000。
+    # 安全说明：仅映射用户显式指定的端口，未映射端口对宿主机不可见。
+    # PORT_ARGS 为空时 guarded 展开为空，set -u 下安全。
+    ${PORT_ARGS[@]+"${PORT_ARGS[@]}"}
 
     # 工作目录 = 项目目录
     -w "${PROJECT_DIR}"
