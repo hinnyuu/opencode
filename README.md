@@ -20,79 +20,88 @@ LLM 是强大的协作者，但它可能犯错、可能被 prompt injection 误�
 ## 架构总览
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  宿主机（Rootless Podman 5.8+）                                  │
-│                                                                  │
-│  /data/apps/podman_rootless.opencode/                           │
-│  ├── opencode.sh              ← 启动脚本（白名单校验）           │
-│  ├── opencode/opencode        ← 二进制 → /opencode/opencode     │
-│  ├── root/.config/opencode/   ← 配置目录 → /root/.config/...    │
-│  │   ├── opencode.jsonc       ← 权限配置（ro）                  │
-│  │   └── AGENTS.md            ← 行为规则（ro）                  │
-│  └── root/.local/share/opencode/ ← 数据 → /root/.local/share/.. │
-│                                                                  │
-│  ┌────────────────────────────────────────────────────────────┐  │
-│  │  容器（ghcr.io/hinnyuu/opencode:latest）                   │  │
-│  │                                                            │  │
-│  │  /opencode/opencode          [ro] 二进制                   │  │
-│  │  /root/.config/opencode/     [rw] 目录                     │  │
-│  │    ├── opencode.jsonc        [ro] 嵌套只读                 │  │
-│  │    └── AGENTS.md             [ro] 嵌套只读                 │  │
-│  │  /root/.local/share/opencode [rw] 持久数据                 │  │
-│  │  /nix                        [rw] Named Volume             │  │
-│  │  ${PROJECT_DIR}              [rw] 工作区（同路径挂载）       │  │
-│  │  ${DATASET_PATH}             [ro] 可选只读数据集             │  │
-│  └────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  宿主机（Fedora · rootless podman · SELinux enforcing）                          │
+│                                                                                 │
+│  /data/apps/podman_rootless.opencode/                                           │
+│  ├── opencode.sh                              ← 唯一入口脚本                     │
+│  └── root/.config/opencode/                                                     │
+│      ├── opencode.jsonc                       ← 安全文件（ro 嵌套挂入容器）       │
+│      └── AGENTS.md                            ← 安全文件（ro 嵌套挂入容器）       │
+│                                                                                 │
+│  用法：cd /data/projects/<项目> && opencode.sh [--dataset /data/dataset/xxx]     │
+│       │                                                                         │
+│       ▼                                                                         │
+│  ┌─────────────────────────────────────────────────────────────────────────┐     │
+│  │  podman run -it --rm --name opencode                                  │     │
+│  │                                                                         │     │
+│  │  镜像   ghcr.io/hinnyuu/opencode:latest                               │     │
+│  │  基础   nixos/nix:2.35.1（无 libc/ld，一切由 nix 提供）                 │     │
+│  │  应用   nix flake 源码编译 opencode，按 git tag 锁版本                   │     │
+│  │                                                                         │     │
+│  │  ┌─ 挂载拓扑（Podman 按路径深度从浅到深应用）─────────────────────┐      │     │
+│  │  │  ① opencode-home  → /root                named vol   rw      │      │     │
+│  │  │  ② opencode-nix   → /nix                 named vol   rw      │      │     │
+│  │  │  ③ opencode.jsonc → /root/.config/…/     bind ro,Z  嵌套于①  │      │     │
+│  │  │  ④ AGENTS.md      → /root/.config/…/     bind ro,Z  嵌套于①  │      │     │
+│  │  │  ⑤ 项目目录       → 同路径               bind rw,z           │      │     │
+│  │  │  ⑥ 数据集 ×N      → 同路径               bind ro,z  可选     │      │     │
+│  │  └────────────────────────────────────────────────────────────────┘      │     │
+│  │                                                                         │     │
+│  │  ENTRYPOINT  /entrypoint.sh（版本对账 → exec "$@"）                     │     │
+│  │  CMD         ["opencode"]                                               │     │
+│  └─────────────────────────────────────────────────────────────────────────┘     │
+│                                                                                 │
+│  持久卷（--rm 不删除命名卷，容器销毁后数据完整保留）：                              │
+│  • opencode-home — /root 全部运行时数据                                          │
+│  • opencode-nix  — /nix store + nix profiles                                    │
+└─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 五层安全保障
+### 安全模型
 
-| 层级 | 机制 | 防护目标 |
-|------|------|----------|
-| ① 镜像层 | 开源 GHCR 镜像，使用Github Workflow自动构建，nix 环境，无预装语言运行时 | 供应链安全，最小攻击面 |
-| ② 容器层 | rootless Podman，`--rm` 即用即走 | 宿主机隔离，无残留 |
-| ③ 脚本层 | 白名单目录校验 | 防止挂载 / 或 /home |
-| ④ 权限层 | opencode.jsonc permission + AGENTS.md | LLM 操作审批与行为约束 |
-| ⑤ 文件系统层 | 关键文件 ro 挂载，嵌套挂载 | 防篡改（二进制、配置、规则） |
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  第①层：白名单                                                       │
+│  opencode.sh 仅允许在 /data/projects、/data/test、/data/dataset     │
+│  及其子目录下启动。防止误在 / 或 /home 下启动。                       │
+├─────────────────────────────────────────────────────────────────────┤
+│  第②层：只读安全文件                                                  │
+│  opencode.jsonc 和 AGENTS.md 通过 bind mount ro 嵌套在卷之上。       │
+│  LLM 无法修改自身权限配置和行为规则。                                 │
+│  活跃挂载点不可 rm/mv（Device or resource busy）。                    │
+├─────────────────────────────────────────────────────────────────────┤
+│  第③层：只读数据集                                                    │
+│  --dataset 挂载为 ro,z。LLM 只能读取，不能修改/删除。                 │
+├─────────────────────────────────────────────────────────────────────┤
+│  第④层：权限隔离                                                      │
+│  容器以 rootless podman 运行。容器内 root 映射到宿主机用户命名空间，   │
+│  实际权限受限于用户命名空间。安全文件 :Z 标签阻止其他容器访问。        │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
 ## 快速开始
+⚠️ 本README.md假设你希望安装到`/data/apps/`实际根据需要，把`/data/apps/`替换为你期望的安装目录
 
 ### 前置条件
 
-- Podman ≥ 5.8.4（rootless 模式）
+- 宿主机Podman ≥ 5.8.4（rootless 模式）
 - SELinux 已启用（推荐）或已禁用（`:z`/`:Z` 标签会被忽略，不影响功能）
-- 目录结构已创建
+- 准备好了放置本项目的目录，如`/data/apps/`
 
 ### 部署
 
-准备宿主机即将挂载的目录树、自行下载opencode官方的二进制文件，放进目录树对应位置。
-```bash
-# 1. 创建目录结构
-mkdir -p /data/apps/podman_rootless.opencode/{opencode,root/.config/opencode,root/.local/share/opencode}
-
-# 2. 从本仓库复制文件到对应位置
-cp opencode.sh     /data/apps/podman_rootless.opencode/
-cp opencode.jsonc  /data/apps/podman_rootless.opencode/root/.config/opencode/
-cp AGENTS.md       /data/apps/podman_rootless.opencode/root/.config/opencode/
-chmod +x /data/apps/podman_rootless.opencode/opencode.sh
-
-# 3. 下载 opencode 二进制
-curl -fsSL https://github.com/anomalyco/opencode/releases/download/v1.18.11/opencode-linux-x64.tar.gz \
-  | tar xz -C /data/apps/podman_rootless.opencode/opencode/
-chmod +x /data/apps/podman_rootless.opencode/opencode/opencode
-
-# 4. 拉取镜像
-podman pull ghcr.io/hinnyuu/opencode:latest
-
-# 5. 首次运行会拉取镜像并初始化 nix volume
-```
+首先下载本项目的整个 podman_rootless.opencode 目录，放到你期望的安装目录，如`/data/apps/`。
+然后给予 opencode.sh 执行权限：`chmod +x /data/apps/podman_rootless.opencode/opencode.sh`
 
 ### 使用
 
 ```bash
+# 授予启动脚本最基本的运行权限。
+chmod +x /data/apps/podman_rootless.opencode/opencode.sh
+
 # 进入项目目录，启动 opencode
 cd /data/projects/my-project
 /data/apps/podman_rootless.opencode/opencode.sh
@@ -108,15 +117,13 @@ Tips: 可以使用alias简化命令。
 ### 升级 opencode
 
 ```bash
-# 替换二进制即可，无需重建镜像
-curl -fsSL https://github.com/anomalyco/opencode/releases/download/v1.19.0/opencode-linux-x64.tar.gz \
-  | tar xz -C /data/apps/podman_rootless.opencode/opencode/
-chmod +x /data/apps/podman_rootless.opencode/opencode/opencode
+# 保险起见，先退出容器再更换新的opencode官方二进制文件。
+rm /data/apps/podman_rootless.opencode/opencode/opencode && /data/apps/podman_rootless.opencode/opencode/get_opencode_bin.sh
 # 下次启动容器自动使用新版
 ```
-保险起见，也可以先退出容器再更换新的opencode官方二进制文件。
 
 ---
+
 
 ## 依赖管理
 
@@ -139,48 +146,47 @@ chmod +x /data/apps/podman_rootless.opencode/opencode/opencode
 
 ---
 
-## 持久化与无感重建
+## 挂载顺序与嵌套关系
 
-容器 `--rm` 后重建，以下数据完整保留：
+Podman 按**路径深度从浅到深**应用挂载：
 
-| 数据 | 存储位置 | 挂载方式 |
-|------|----------|----------|
-| 会话历史 | `/root/.local/share/opencode/` | bind mount rw |
-| API 密钥 | `/root/.local/share/opencode/auth.json` | bind mount rw |
-| nix 已安装包 | `/nix` | named volume |
-| 项目文件 | `${PROJECT_DIR}`（同路径） | bind mount rw |
-| 权限配置 | `/root/.config/opencode/opencode.jsonc` | bind mount ro |
-| 行为规则 | `/root/.config/opencode/AGENTS.md` | bind mount ro |
-
-**丢失的仅有**：容器可写层中的临时文件（/tmp 等）——这是预期行为。
-
----
-
-## 维护
-
-```bash
-# 查看 nix volume 大小
-podman volume inspect opencode-nix
-
-# 重建 nix 环境（最坏情况恢复）
-podman volume rm opencode-nix
-# 下次启动自动重建，nix-env 安装的包需重新安装
-
-# 清理无用镜像
-podman image prune -f
-
-# 查看容器日志（如果启动失败）
-podman logs opencode
+```
+深度 0:  opencode-home  →  /root                                    (rw, named vol)
+深度 0:  opencode-nix   →  /nix                                     (rw, named vol)
+深度 4:  bind mount     →  /root/.config/opencode/opencode.jsonc    (ro, 嵌套于 opencode-home)
+深度 4:  bind mount     →  /root/.config/opencode/AGENTS.md         (ro, 嵌套于 opencode-home)
+深度 N:  bind mount     →  /data/projects/<项目>                     (rw, 独立)
+深度 N:  bind mount     →  /data/dataset/<数据集>                    (ro, 独立, 可选)
 ```
 
+效果矩阵
+
+| 容器内路径 | 来源 | 读写 | SELinux | 说明 |
+|---|---|---|---|---|
+| `/root/` 整体 | opencode-home 卷 | rw | 自动 | 全部运行时数据 |
+| `/root/.config/opencode/opencode.jsonc` | 宿主机 bind | **ro** | :Z | 覆盖卷中同名文件 |
+| `/root/.config/opencode/AGENTS.md` | 宿主机 bind | **ro** | :Z | 覆盖卷中同名文件 |
+| `/root/.config/opencode/`（目录本身） | opencode-home 卷 | rw | 自动 | LLM 可写入 schema 等 |
+| `/nix/` 整体 | opencode-nix 卷 | rw | 自动 | nix store + profiles |
+| `/data/projects/<项目>` | 宿主机 bind | rw | \:z | 同路径挂载 |
+| `/data/dataset/<数据集>` | 宿主机 bind | ro | \:z | 只读 |
+
 ---
 
-## 文件说明
+## 项目核心文件说明
 
-| 文件 | 用途 |
-|------|------|
-| `Containerfile` | 镜像构建定义（push 到 GitHub 后由 Actions 自动构建） |
-| `opencode.sh` | 宿主机启动脚本（复制到宿主机使用） |
-| `opencode.jsonc` | OpenCode 权限配置模板（复制到宿主机配置目录） |
-| `AGENTS.md` | LLM 行为规则模板（复制到宿主机配置目录） |
-| `.github/workflows/build-image.yml` | CI/CD：分支 → 镜像自动构建推送 |
+```bash
+.
+├── Containerfile # 镜像构建定义
+├── entrypoint.sh # 每次进入容器时检查opencode版本的Shell脚本
+├── .github
+│   └── workflows
+│       └── build-image.yml # CI/CD：分支 → 镜像自动构建推送
+└── podman_rootless.opencode
+     ├── opencode.sh # 宿主机启动脚本
+     └── root
+         └── .config
+             └── opencode
+                 ├── AGENTS.md # LLM 行为规则模板
+                 └── opencode.jsonc # OpenCode 权限配置模板
+```
