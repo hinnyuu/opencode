@@ -13,7 +13,7 @@ set -eu
 expected="${OPENCODE_VERSION:-}"
 installed="$(opencode --version 2>/dev/null || echo none)"
 
-# 版本格式：1.18.11+012c2f5（nix derivation 追加 git 短哈希）
+# 版本格式：1.19.0+733b2c6（nix derivation 追加 git 短哈希）
 # 匹配策略：精确等于 expected，或以 "expected+" 开头
 case "${installed}" in
     "${expected}"|"${expected}+"*)
