@@ -11,7 +11,7 @@ FROM nixos/nix:2.35.1
 RUN echo "experimental-features = nix-command flakes" >> /etc/nix/nix.conf
 
 # ─── opencode 版本（升级时只改这里，触发 Actions 重建）────────────────────────
-ARG OPENCODE_VERSION=1.18.11
+ARG OPENCODE_VERSION=1.19.0
 ENV OPENCODE_VERSION=${OPENCODE_VERSION}
 
 # 按 tag 锁定安装（源码编译，约 5-10 min）
